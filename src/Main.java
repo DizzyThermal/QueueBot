@@ -4,10 +4,10 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.ArrayList;
+
+import javazoom.jl.player.advanced.AdvancedPlayer;
+import javazoom.jl.player.advanced.PlaybackListener;
 
 public class Main
 {
@@ -21,16 +21,20 @@ public class Main
 	public static String nowPlayingFileString = "nowPlaying";
 	public static String configFileString = "QueueBot.ini";
 	
+	public static String nowPlaying;
+	
 	public static File priorityFile;
 	public static File standardFile;
 	public static File nowPlayingFile;
 	public static File configFile = new File(configFileString);
 	
-	public static float readDelay = (float)2.5;
+	public static float readDelay = 2;
+	public static int downVotePurgeMin = -2;
 	
 	public static int songId;
 
-	public static Thread songThread;
+	public static Thread songThread = new Thread();
+	public static SoundJLayer song = null;
 	
 	public static ArrayList<Song> prioritySongs = new ArrayList<Song>();
 	public static ArrayList<Song> standardSongs = new ArrayList<Song>();
@@ -49,7 +53,8 @@ public class Main
 				standardSongs.add(new Song(songId++, 0, line));
 		}
 		catch(IOException ioe) { ioe.printStackTrace(); }
-		
+
+	MainLoop:
 		while(true)
 		{
 			if(priorityFile.length() > 0)
@@ -76,37 +81,46 @@ public class Main
 					
 					bWriter.close();
 					
-					if(prioritySongs.size() > 0)
-					{
-						bWriter = new BufferedWriter(new FileWriter(nowPlayingFile));
-						bWriter.write(nowPlayingString(0) + "\n");
-						for(int i = 1; i < prioritySongs.size(); i++)
-							bWriter.append(nowPlayingString(i) + "\n");
-						
-						bWriter.close();
-					}
+					updateNowPlaying();
 				}
 				catch(IOException ioe) { ioe.printStackTrace(); }
 			}
 			else
 			{
-				try { Thread.sleep((long)(readDelay * 1000)); }
-				catch (Exception e) { e.printStackTrace(); }
+				if(readDelay > 0)
+				{
+					try { Thread.sleep((long)(readDelay * 1000)); }
+					catch (Exception e) { e.printStackTrace(); }
+				}
 			}
 			
-			if(!(songThread.isAlive()))
+			if((song == null) || (!(song.getPlayingThread().isAlive())))
 			{
-				songThread = (new Thread()
+				if(prioritySongs.isEmpty() && standardSongs.isEmpty())
+					break MainLoop;
+
+				String songName = musicFilePath;
+				if(prioritySongs.size() > 0)
 				{
-					@Override
-					public void run()
-					{
-						// Play Song
-					}
-				});
-				songThread.start();
+					songName = songName + prioritySongs.get(0).getSong() + ".mp3";
+					nowPlaying = prioritySongs.get(0).getSong();
+					prioritySongs.remove(0);
+				}
+				else
+				{
+					songName = songName + standardSongs.get(0).getSong() + ".mp3";
+					nowPlaying = standardSongs.get(0).getSong();
+					standardSongs.remove(0);
+				}
+				
+				song = new SoundJLayer(songName);
+				song.play();
+				
+				updateNowPlaying();
 			}
 		}
+		
+		System.out.println("Queue's Are Empty!\nThank you for using QueueBot!");
 	}
 	
 	public static void readConfigFile()
@@ -139,6 +153,8 @@ public class Main
 					nowPlayingFileString = variable[1];
 				else if(variable[0].equals("ReadDelay"))
 					readDelay = Float.parseFloat(variable[1]);
+				else if(variable[0].equals("DownVotePurgeMin"))
+					downVotePurgeMin = Integer.parseInt(variable[1]);
 			}
 			bReader.close();
 		}
@@ -188,13 +204,92 @@ public class Main
 					break;
 				}
 				
+				if(prioritySongs.get(i).getRating() <= downVotePurgeMin)
+					prioritySongs.remove(i);
+				
 				reprioritizeSongs();
 			}
 		}		
 	}
 	
-	public static String nowPlayingString(int index)
+	public static void updateNowPlaying()
 	{
-		return "[" + prioritySongs.get(index).getRating() + "] " + prioritySongs.get(index).getArtist() + " - " + prioritySongs.get(index).getTitle();
+		try
+		{
+			bWriter = new BufferedWriter(new FileWriter(nowPlayingFile));
+			bWriter.write(nowPlaying + "\n");
+			if(prioritySongs.size() > 0)
+			{
+				for(int i = 0; i < prioritySongs.size(); i++)
+					bWriter.append(nowPlayingString(prioritySongs.get(i), true) + "\n");
+			}
+			for(int i = 0; i < standardSongs.size(); i++)
+				bWriter.append(nowPlayingString(standardSongs.get(i), false) + "\n");
+			
+			bWriter.close();
+		}
+		catch(IOException ioe) { ioe.printStackTrace(); }
 	}
+	
+	public static String nowPlayingString(Song song, boolean priority)
+	{
+		String str = "";
+		if(priority)
+			str = "[" + song.getRating() + "] ";
+		return str + song.getArtist() + " - " + song.getTitle();
+	}
+}
+
+class SoundJLayer extends PlaybackListener implements Runnable
+{
+    private String filePath;
+    private AdvancedPlayer player;
+    private Thread playerThread;    
+
+    public SoundJLayer(String filePath)
+    {
+        this.filePath = filePath;
+    }
+
+    public void play()
+    {
+        try
+        {
+            String urlAsString = 
+                "file://" 
+                + this.filePath;
+
+            this.player = new AdvancedPlayer
+            (
+                new java.net.URL(urlAsString).openStream(),
+                javazoom.jl.player.FactoryRegistry.systemRegistry().createAudioDevice()
+            );
+
+            this.player.setPlayBackListener(this);
+
+            this.playerThread = new Thread(this, "AudioPlayerThread");
+
+            this.playerThread.start();
+        }
+        catch (Exception ex)
+        {
+            ex.printStackTrace();
+        }
+    }
+
+    // Runnable members
+
+    public void run()
+    {
+        try
+        {
+            this.player.play();
+        }
+        catch (javazoom.jl.decoder.JavaLayerException ex)
+        {
+            ex.printStackTrace();
+        }
+    }
+    
+    public Thread getPlayingThread() { return playerThread; }
 }
