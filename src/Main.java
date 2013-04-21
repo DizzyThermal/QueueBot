@@ -4,6 +4,9 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
 
 public class Main
@@ -27,6 +30,8 @@ public class Main
 	
 	public static int songId;
 
+	public static Thread songThread;
+	
 	public static ArrayList<Song> prioritySongs = new ArrayList<Song>();
 	public static ArrayList<Song> standardSongs = new ArrayList<Song>();
 
@@ -87,6 +92,19 @@ public class Main
 			{
 				try { Thread.sleep((long)(readDelay * 1000)); }
 				catch (Exception e) { e.printStackTrace(); }
+			}
+			
+			if(!(songThread.isAlive()))
+			{
+				songThread = (new Thread()
+				{
+					@Override
+					public void run()
+					{
+						// Play Song
+					}
+				});
+				songThread.start();
 			}
 		}
 	}
