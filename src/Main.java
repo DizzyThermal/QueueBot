@@ -9,6 +9,10 @@ import java.util.ArrayList;
 import javazoom.jl.player.advanced.AdvancedPlayer;
 import javazoom.jl.player.advanced.PlaybackListener;
 
+import org.cmc.music.metadata.IMusicMetadata;
+import org.cmc.music.metadata.MusicMetadataSet;
+import org.cmc.music.myid3.MyID3;
+
 public class Main
 {
 	public static BufferedReader bReader;
@@ -19,6 +23,7 @@ public class Main
 	public static String priorityFileString = "priorityQueue";
 	public static String standardFileString = "standardQueue";
 	public static String nowPlayingFileString = "nowPlaying";
+	public static String dataBaseFileString = "QBMusicDatabase.db";
 	public static String configFileString = "QueueBot.ini";
 	
 	public static String nowPlaying;
@@ -26,12 +31,15 @@ public class Main
 	public static File priorityFile;
 	public static File standardFile;
 	public static File nowPlayingFile;
+	public static File dataBaseFile;
 	public static File configFile = new File(configFileString);
+	
+	public static int songId;
+	public static int vetoRequirement = 3;
+	public static int veto;
 	
 	public static float readDelay = 2;
 	public static int downVotePurgeMin = -2;
-	
-	public static int songId;
 
 	public static Thread songThread = new Thread();
 	public static SoundJLayer song = null;
@@ -43,7 +51,14 @@ public class Main
 	{
 		// Populate File Strings and Settings
 		readConfigFile();
+		
+		dataBaseFile = new File(dataBaseFileString);
+		
+		if((!dataBaseFile.exists()) || ((args.length) > 0 && (args[0].equals("--buildDB"))))
+			buildDB();
 
+		System.out.println("All Systems Go!  QueueBot has Started!");
+		
 		try
 		{
 			bReader = new BufferedReader(new FileReader(standardFile));
@@ -69,9 +84,11 @@ public class Main
 						if(line.equals(""))
 							continue;
 	
-						if(line.contains("[+]") || line.contains("[-]"))
-							changePriority(line);
-						else
+						if((line.charAt(0) == '+') || (line.charAt(0) == '-'))
+							changePriority(line.charAt(0), Integer.parseInt(line.substring(3)));
+						else if((line.charAt(0) == 'V'))
+							addToVeto();
+						else if((line.charAt(0) == 'A'))
 							prioritySongs.add(new Song(songId++, 0, line));
 					}
 					bReader.close();
@@ -102,17 +119,18 @@ public class Main
 				String songName = musicFilePath;
 				if(prioritySongs.size() > 0)
 				{
-					songName = songName + prioritySongs.get(0).getSong() + ".mp3";
-					nowPlaying = prioritySongs.get(0).getSong();
+					songName = songName + prioritySongs.get(0).getFilename();
+					nowPlaying = prioritySongs.get(0).getMetadata();
 					prioritySongs.remove(0);
 				}
 				else
 				{
-					songName = songName + standardSongs.get(0).getSong() + ".mp3";
-					nowPlaying = standardSongs.get(0).getSong();
+					songName = songName + standardSongs.get(0).getFilename();
+					nowPlaying = standardSongs.get(0).getMetadata();
 					standardSongs.remove(0);
 				}
 				
+				veto = 0;
 				song = new SoundJLayer(songName);
 				song.play();
 				
@@ -120,9 +138,81 @@ public class Main
 			}
 		}
 		
+		clearNowPlaying();
 		System.out.println("Queue's Are Empty!\nThank you for using QueueBot!");
 	}
 	
+	public static void buildDB()
+	{	
+		System.out.println("Building QueueBot Database - This may take a while!");
+		long timeStart = System.currentTimeMillis();
+		
+		File directory = new File(musicFilePath);
+		File[] songs = directory.listFiles();
+		
+		ArrayList<String> songList = new ArrayList<String>();
+		
+		for(int i = 0; i < songs.length; i++)
+		{
+			if((songs[i].isFile()) && (songs[i].getName().substring(songs[i].getName().length()-4).equals(".mp3")))
+			{
+				File song = new File(musicFilePath + songs[i].getName());
+				
+				MusicMetadataSet songMetaDataSet;
+				IMusicMetadata songMetaData = null;
+
+				try
+				{
+					songMetaDataSet = new MyID3().read(song);
+					songMetaData = songMetaDataSet.getSimplified();
+				}
+				catch(Exception e) { e.printStackTrace(); }
+
+				songList.add(getCSVRow(songMetaData) + "\\" + songs[i].getName());
+			}
+		}
+		
+		try
+		{
+			BufferedWriter bWriter = new BufferedWriter(new FileWriter(dataBaseFileString));
+			
+			bWriter.write("");
+			for(int i = 0; i < songList.size(); i++)
+				bWriter.append(songList.get(i) + "\n");
+			
+			bWriter.close();
+		}
+		catch(Exception e) { e.printStackTrace(); }
+		
+		long timeStop = System.currentTimeMillis();
+		System.out.println(songs.length + " songs added to database in " + getTime(timeStop-timeStart));
+	}
+
+	public static String getTime(double time)
+	{
+		int hours = (int)time/(1000 * 60 * 60);
+		int minutes = (int)time/(1000 * 60);
+		double seconds = time/1000;
+		
+		String output = "";
+		if(hours > 0)
+			output = output + hours + " hours, ";
+		if(minutes > 0)
+			output = output + minutes + " minutes, ";
+		if(seconds > 0)
+			output = output + seconds + " seconds";
+		
+		if(output.charAt(output.length()-2) == ',')
+			output = output.substring(0, output.length()-2);
+		
+		return output;
+	}
+	
+	public static String getCSVRow(IMusicMetadata m)
+	{
+		return m.getArtist() + "\\" + m.getSongTitle() + "\\" + m.getAlbum();
+	}
+
 	public static void readConfigFile()
 	{
 		try
@@ -155,6 +245,10 @@ public class Main
 					readDelay = Float.parseFloat(variable[1]);
 				else if(variable[0].equals("DownVotePurgeMin"))
 					downVotePurgeMin = Integer.parseInt(variable[1]);
+				else if(variable[0].equals("QBMusicDatabase"))
+					dataBaseFileString = variable[1];
+				else if(variable[0].equals("VetoRequirement"))
+					vetoRequirement = Integer.parseInt(variable[1]);
 			}
 			bReader.close();
 		}
@@ -174,25 +268,25 @@ public class Main
 			{
 				if(prioritySongs.get(j).getRating() < prioritySongs.get(j+1).getRating())
 				{
+					int tmpId = prioritySongs.get(j).getRating();
 					int tmpPriority = prioritySongs.get(j).getRating();
+					String tmpFilename = prioritySongs.get(j).getFilename();
 					String tmpTitle = prioritySongs.get(j).getTitle();
 					String tmpArtist = prioritySongs.get(j).getArtist();
+					String tmpAlbum = prioritySongs.get(j).getAlbum();
 					
-					prioritySongs.get(j).setInfo(prioritySongs.get(j+1).getRating(), prioritySongs.get(j+1).getTitle(), prioritySongs.get(j+1).getArtist());
-					prioritySongs.get(j+1).setInfo(tmpPriority, tmpTitle, tmpArtist);
+					prioritySongs.get(j).setInfo(prioritySongs.get(j+1).getId(), prioritySongs.get(j+1).getRating(), prioritySongs.get(j+1).getFilename(), prioritySongs.get(j+1).getTitle(), prioritySongs.get(j+1).getArtist(), prioritySongs.get(j+1).getAlbum());
+					prioritySongs.get(j+1).setInfo(tmpId, tmpPriority, tmpFilename, tmpTitle, tmpArtist, tmpAlbum);
 				}
 			}
 		}
 	}
 	
-	public static void changePriority(String song)
+	public static void changePriority(char direction, int id)
 	{
-		char direction = song.charAt(1);
-		song = song.substring(4); //Ditch Plus or Minus
-		
 		for(int i = 0; i < prioritySongs.size(); i++)
 		{
-			if(prioritySongs.get(i).getSong().equals(song))
+			if(prioritySongs.get(i).getId() == id)
 			{
 				switch(direction)
 				{
@@ -217,26 +311,39 @@ public class Main
 		try
 		{
 			bWriter = new BufferedWriter(new FileWriter(nowPlayingFile));
-			bWriter.write(nowPlaying + "\n");
+			bWriter.write(veto + "/" + vetoRequirement + "\\\\" + nowPlaying + "\n");
 			if(prioritySongs.size() > 0)
 			{
 				for(int i = 0; i < prioritySongs.size(); i++)
-					bWriter.append(nowPlayingString(prioritySongs.get(i), true) + "\n");
+					bWriter.append(nowPlayingString(prioritySongs.get(i)) + "\n");
 			}
-			for(int i = 0; i < standardSongs.size(); i++)
-				bWriter.append(nowPlayingString(standardSongs.get(i), false) + "\n");
 			
 			bWriter.close();
 		}
 		catch(IOException ioe) { ioe.printStackTrace(); }
 	}
 	
-	public static String nowPlayingString(Song song, boolean priority)
+	public static void clearNowPlaying()
 	{
-		String str = "";
-		if(priority)
-			str = "[" + song.getRating() + "] ";
-		return str + song.getArtist() + " - " + song.getTitle();
+		try
+		{
+			bWriter = new BufferedWriter(new FileWriter(nowPlayingFile));
+			bWriter.write("");
+			bWriter.close();
+		}
+		catch(IOException ioe) { ioe.printStackTrace(); }
+	}
+	
+	public static String nowPlayingString(Song song)
+	{
+		return song.getId() + "\\\\" + song.getRating() + "\\\\" + song.getArtist() + "\\\\" + song.getTitle() + "\\\\" + song.getAlbum();
+	}
+	
+	public static void addToVeto()
+	{
+		veto++;
+		if(veto >= vetoRequirement)
+			song.getPlayingThread().stop();
 	}
 }
 
@@ -255,9 +362,7 @@ class SoundJLayer extends PlaybackListener implements Runnable
     {
         try
         {
-            String urlAsString = 
-                "file://" 
-                + this.filePath;
+            String urlAsString = "file://" + this.filePath;
 
             this.player = new AdvancedPlayer
             (
@@ -271,24 +376,13 @@ class SoundJLayer extends PlaybackListener implements Runnable
 
             this.playerThread.start();
         }
-        catch (Exception ex)
-        {
-            ex.printStackTrace();
-        }
+        catch (Exception ex) { ex.printStackTrace(); }
     }
-
-    // Runnable members
 
     public void run()
     {
-        try
-        {
-            this.player.play();
-        }
-        catch (javazoom.jl.decoder.JavaLayerException ex)
-        {
-            ex.printStackTrace();
-        }
+        try { this.player.play(); }
+        catch (javazoom.jl.decoder.JavaLayerException ex) { ex.printStackTrace(); }
     }
     
     public Thread getPlayingThread() { return playerThread; }
