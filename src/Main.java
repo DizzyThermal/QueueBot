@@ -34,7 +34,7 @@ public class Main
 	public static File dataBaseFile;
 	public static File configFile = new File(configFileString);
 	
-	public static int songId;
+	public static int songId = 0;
 	public static int vetoRequirement = 3;
 	public static int veto;
 	
@@ -65,7 +65,7 @@ public class Main
 			String line;
 			
 			while((line = bReader.readLine()) != null)
-				standardSongs.add(new Song(songId++, 0, line));
+				standardSongs.add(new Song(++songId, 0, line));
 		}
 		catch(IOException ioe) { ioe.printStackTrace(); }
 
@@ -89,7 +89,7 @@ public class Main
 						else if((line.charAt(0) == 'V'))
 							addToVeto();
 						else if((line.charAt(0) == 'A'))
-							prioritySongs.add(new Song(songId++, 0, line));
+							prioritySongs.add(new Song(++songId, 0, line));
 					}
 					bReader.close();
 					
@@ -114,19 +114,22 @@ public class Main
 			if((song == null) || (!(song.getPlayingThread().isAlive())))
 			{
 				if(prioritySongs.isEmpty() && standardSongs.isEmpty())
+				{
+					clearNowPlaying();
 					break MainLoop;
+				}
 
 				String songName = musicFilePath;
 				if(prioritySongs.size() > 0)
 				{
 					songName = songName + prioritySongs.get(0).getFilename();
-					nowPlaying = prioritySongs.get(0).getMetadata();
+					nowPlaying = prioritySongs.get(0).getId() + "\\\\" + prioritySongs.get(0).getMetadata();
 					prioritySongs.remove(0);
 				}
 				else
 				{
 					songName = songName + standardSongs.get(0).getFilename();
-					nowPlaying = standardSongs.get(0).getMetadata();
+					nowPlaying = standardSongs.get(0).getId() + "\\\\" + standardSongs.get(0).getMetadata();
 					standardSongs.remove(0);
 				}
 				
@@ -210,7 +213,7 @@ public class Main
 	
 	public static String getCSVRow(IMusicMetadata m)
 	{
-		return m.getArtist() + "\\" + m.getSongTitle() + "\\" + m.getAlbum();
+		return m.getArtist() + "\\" + m.getSongTitle() + "\\" + m.getAlbum() + "\\" + m.getGenreName();
 	}
 
 	public static void readConfigFile()
@@ -268,15 +271,36 @@ public class Main
 			{
 				if(prioritySongs.get(j).getRating() < prioritySongs.get(j+1).getRating())
 				{
-					int tmpId = prioritySongs.get(j).getRating();
+					int tmpId = prioritySongs.get(j).getId();
 					int tmpPriority = prioritySongs.get(j).getRating();
 					String tmpFilename = prioritySongs.get(j).getFilename();
 					String tmpTitle = prioritySongs.get(j).getTitle();
 					String tmpArtist = prioritySongs.get(j).getArtist();
 					String tmpAlbum = prioritySongs.get(j).getAlbum();
+					String tmpGenre = prioritySongs.get(j).getGenre();
 					
-					prioritySongs.get(j).setInfo(prioritySongs.get(j+1).getId(), prioritySongs.get(j+1).getRating(), prioritySongs.get(j+1).getFilename(), prioritySongs.get(j+1).getTitle(), prioritySongs.get(j+1).getArtist(), prioritySongs.get(j+1).getAlbum());
-					prioritySongs.get(j+1).setInfo(tmpId, tmpPriority, tmpFilename, tmpTitle, tmpArtist, tmpAlbum);
+					prioritySongs.get(j).setInfo(prioritySongs.get(j+1).getId(), prioritySongs.get(j+1).getRating(), prioritySongs.get(j+1).getFilename(), prioritySongs.get(j+1).getTitle(), prioritySongs.get(j+1).getArtist(), prioritySongs.get(j+1).getAlbum(), prioritySongs.get(j+1).getGenre());
+					prioritySongs.get(j+1).setInfo(tmpId, tmpPriority, tmpFilename, tmpTitle, tmpArtist, tmpAlbum, tmpGenre);
+				}
+			}
+		}
+		
+		for(int i = 0; i < prioritySongs.size(); i++)
+		{
+			for(int j = 0; j < (prioritySongs.size() - 1 - i); j++)
+			{
+				if((prioritySongs.get(j).getId() > prioritySongs.get(j+1).getId()) && (prioritySongs.get(j).getRating() == prioritySongs.get(j+1).getRating()))
+				{
+					int tmpId = prioritySongs.get(j).getId();
+					int tmpPriority = prioritySongs.get(j).getRating();
+					String tmpFilename = prioritySongs.get(j).getFilename();
+					String tmpTitle = prioritySongs.get(j).getTitle();
+					String tmpArtist = prioritySongs.get(j).getArtist();
+					String tmpAlbum = prioritySongs.get(j).getAlbum();
+					String tmpGenre = prioritySongs.get(j).getGenre();
+					
+					prioritySongs.get(j).setInfo(prioritySongs.get(j+1).getId(), prioritySongs.get(j+1).getRating(), prioritySongs.get(j+1).getFilename(), prioritySongs.get(j+1).getTitle(), prioritySongs.get(j+1).getArtist(), prioritySongs.get(j+1).getAlbum(), prioritySongs.get(j+1).getGenre());
+					prioritySongs.get(j+1).setInfo(tmpId, tmpPriority, tmpFilename, tmpTitle, tmpArtist, tmpAlbum, tmpGenre);
 				}
 			}
 		}
@@ -302,6 +326,7 @@ public class Main
 					prioritySongs.remove(i);
 				
 				reprioritizeSongs();
+				break;
 			}
 		}		
 	}
@@ -336,7 +361,7 @@ public class Main
 	
 	public static String nowPlayingString(Song song)
 	{
-		return song.getId() + "\\\\" + song.getRating() + "\\\\" + song.getArtist() + "\\\\" + song.getTitle() + "\\\\" + song.getAlbum();
+		return song.getId() + "\\\\" + song.getRating() + "\\\\" + song.getArtist() + "\\\\" + song.getTitle() + "\\\\" + song.getAlbum() + "\\\\" + song.getGenre();
 	}
 	
 	public static void addToVeto()
